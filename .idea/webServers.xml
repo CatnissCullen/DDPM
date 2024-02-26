@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="71a3fb2e-f936-4f02-b9e2-562aba7be391" name="Lab">
+        <fileTransfer rootFolder="/data/ypq" accessType="SFTP" host="10.171.21.25" port="22" sshConfigId="78dbe475-460c-4489-b5fd-86fe7d812b16" sshConfig="gpu@10.171.21.25:22 password" />
+      </webServer>
+    </option>
+  </component>
+</project>
