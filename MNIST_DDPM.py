@@ -28,7 +28,7 @@ hp = {
 	'train_batch_size': 64,
 	'val_batch_size': 128,
 	# ============= model ==============
-	'opt': 'DDIM',
+	'opt': 'DDPM',
 	'eta': 0,
 	'input_size': 32,
 	'in_chan': 1,
@@ -43,7 +43,7 @@ hp = {
 	'beta': 'sin',
 	# ============= training ==============
 	'init_lr': 6e-5,
-	'epoch_num': 15,
+	'epoch_num': 10,
 	'L2': 5e-3,
 	# ============= testing =============
 	'samples_num': 5
@@ -176,7 +176,7 @@ class Unet(nn.Module):
 		:param img_size: width (or height) of input img.
 		:param in_chan: number of input channels
 		:param out_chan: number of output channels
-		:param t_chan:
+		:param t_chan: number of time tensor channels
 		:param fst_filters: number of filters in the first conv.
 		:param lst_chan: number of channels of the encoder's output
 		:param groups: number of groups in GroupNorm
@@ -505,21 +505,19 @@ def train_DDPM(predictor: Unet, batch, loss_func, optimizer, device, reg_lambda=
 #  X1 -> X0
 def discrete_decoder(X1, beta, device, opt='DDPM'):
 	# predict noise_t
-	t1 = X1.new_full((hp['samples_num'],), 1, dtype=torch.long)
-	pred_noise = model.forward(X1, t1)
-	alpha_1 = my_utils.get_alpha_t(beta, t1).to(device)
-	prob = None
+	t0 = X1.new_full((X1.shape[0],), 0, dtype=torch.long)
+	pred_noise = model.forward(X1, t0)
+	alpha_0 = my_utils.get_alpha_t(beta, t0).to(device)
+	X0 = None
 	if opt == 'DDIM':
-		pred_X0 = (X1 - torch.sqrt(1 - alpha_1) * pred_noise) / torch.sqrt(alpha_1)  # mean
-		t0 = X1.new_full((hp['samples_num'],), 0, dtype=torch.long)
-		alpha_0 = my_utils.get_alpha_t(beta, t0).to(device)
-		sigma_1 = torch.sqrt((1 - alpha_0) / (1 - alpha_1)) * torch.sqrt((1 - alpha_1) / alpha_0)
-		# (add Gaussian noise when t=1)
-		prob = torch.distributions.Normal(pred_X0, sigma_1)  # P(X0|X1)
+		pred_X0 = (X1 - torch.sqrt(1 - alpha_0) * pred_noise) / torch.sqrt(alpha_0)  # mean
+		# alpha_init = 1  # the paper assume the alpha_0 to be 1, here alpha_init (alpha from 0 to T-1 following t)
+		# so sigma_0 = 0, no noise
+		X0 = pred_X0
 	elif opt == "DDPM":
-		alpha_bar_1 = my_utils.get_alpha_bar_t(beta, t1)
-		mean = (X1 - ((1 - alpha_1) * pred_noise) / torch.sqrt(1 - alpha_bar_1)) / torch.sqrt(alpha_1)
-		var = 1 - alpha_1
+		alpha_bar_0 = my_utils.get_alpha_bar_t(beta, t0)
+		mean = (X1 - ((1 - alpha_0) * pred_noise) / torch.sqrt(1 - alpha_bar_0)) / torch.sqrt(alpha_0)
+		var = 1 - alpha_0
 		eps = 1e-5
 		delta_plus = torch.where(
 			X1 >= 1 - eps,
@@ -541,40 +539,39 @@ def discrete_decoder(X1, beta, device, opt='DDPM'):
 			)
 		)
 		prob = torch.distributions.Normal(mean, torch.sqrt(var))  # P(X0|X1)
-	X0 = prob.sample()
+		X0 = prob.sample()
 	return X0
 
 #  others
-def denoise(Xt, beta, t, device, opt='DDPM', eta=0):
+def denoise(X, beta, t, nxt_t, device, opt='DDPM', eta=0):
 	"""
-	Denoise process from Xt to X{t-1}
-	:param Xt: noisy img. at t
+	Denoise process from X{t+1} to X{nxt_t+1}
+	:param X: noisy img. at t+1
 	:param beta: scheduled variance, larger t larger beta
-	:param t: time step
-	:return: X{t-1}, one-step denoised Xt
+	:param t: time step vector
+	:param nxt_t: next t vector
 	:param device: device
 	:param opt: DDPM or DDIM
 	:param eta: interpolation between DDPM & DDIM
+	:return: denoised X
 	"""
 	# predict noise_t
-	t = Xt.new_full((hp['samples_num'],), t, dtype=torch.long)
-	pred_noise = model.forward(Xt, t)
+	pred_noise = model.forward(X, t)
 	# get mean & var --- P(X{t-1}|Xt) = N(X{t-1}; mu(Xt, t, pred_noise), beta_t)
 	alpha_t = my_utils.get_alpha_t(beta, t).to(device)
 	alpha_bar_t = my_utils.get_alpha_bar_t(beta, t)
-	mean = (Xt - ((1 - alpha_t) * pred_noise) / torch.sqrt(1 - alpha_bar_t)) / torch.sqrt(alpha_t)
+	mean = (X - ((1 - alpha_t) * pred_noise) / torch.sqrt(1 - alpha_bar_t)) / torch.sqrt(alpha_t)
 	var = 1 - alpha_t
-	noise = torch.randn(Xt.shape, device=device)
+	noise = torch.randn(X.shape, device=device)
 	if opt == 'DDIM':
-		pred_X0 = (Xt - torch.sqrt(1 - alpha_t) * pred_noise) / torch.sqrt(alpha_t)
-		nxt_t = Xt.new_full((hp['samples_num'],), t-1, dtype=torch.long)
+		pred_X0 = (X - torch.sqrt(1 - alpha_t) * pred_noise) / torch.sqrt(alpha_t)
 		alpha_nxt_t = my_utils.get_alpha_t(beta, nxt_t).to(device)
 		sigma_t = eta * torch.sqrt((1 - alpha_nxt_t) / (1 - alpha_t)) * torch.sqrt((1 - alpha_t) / alpha_nxt_t)
-		dirct2Xt = torch.sqrt(1 - alpha_nxt_t - sigma_t ** 0.5) * pred_noise
-		Xt = torch.sqrt(alpha_nxt_t) * pred_X0 + dirct2Xt + sigma_t * noise
+		dirct2Xt = torch.sqrt(1 - alpha_nxt_t - sigma_t ** 2) * pred_noise
+		X = torch.sqrt(alpha_nxt_t) * pred_X0 + dirct2Xt + sigma_t * noise
 	elif opt == 'DDPM':
-		Xt = mean + torch.sqrt(var) * noise
-	return Xt
+		X = mean + torch.sqrt(var) * noise
+	return X
 
 
 """
@@ -627,10 +624,12 @@ for e in range(e_num):  # iter. epochs
 	model.eval()
 	with torch.no_grad():
 		Xt = torch.randn([hp['samples_num'], hp['in_chan'], hp['input_size'], hp['input_size']], device=device)
-		beta = my_utils.variance_schedule(hp['sampling_T'], hp['beta']).to(device)
-		for t in range(hp['sampling_T'] - 1, -1, -1):
-			if t != 1:
-				Xt = denoise(Xt, beta, t, device, hp['opt'], hp['eta'])
+		beta = my_utils.variance_schedule(hp['train_T'], hp['beta']).to(device)
+		for t in range(hp['sampling_T'] - 1, -1, -1):  # t from T-1 to 0
+			if t != 0:
+				nxt_t = Xt.new_full((hp['samples_num'],), t - 1, dtype=torch.long)
+				t = Xt.new_full((hp['samples_num'],), t, dtype=torch.long)
+				Xt = denoise(Xt, beta, t, nxt_t, device, hp['opt'], hp['eta'])
 			else:
 				X0 = discrete_decoder(Xt, beta, device, hp['opt'])
 		my_utils.save_gen_chk_point(X0, results_dir, e + 1)
