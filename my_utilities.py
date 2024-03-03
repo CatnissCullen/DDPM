@@ -91,6 +91,7 @@ def get_alpha_t(beta, t):
 def save_gen_chk_point(sample_batch, save_dir, idx):
 	sample_batch = torch.cat(tuple(sample_batch), dim=2)
 	save_image(sample_batch, save_dir + "result" + str(idx) + ".png")
+	print('result ',idx,'.png',' saved.')
 
 
 """ Save Model """

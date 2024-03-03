@@ -38,12 +38,12 @@ hp = {
 	'lst_chan': 1024,
 	'groups': 32,
 	'drop_rate': 0.1,
-	'train_T': 600,
-	'sampling_T': 600,
+	'train_T': 700,
+	'sampling_T': 700,
 	'beta': 'sin',
 	# ============= training ==============
 	'init_lr': 6e-5,
-	'epoch_num': 10,
+	'epoch_num': 15,
 	'L2': 5e-3,
 	# ============= testing =============
 	'samples_num': 5
@@ -56,11 +56,10 @@ raw_train_set = datasets.MNIST('./data', train=True,
                                transforms.Compose([
 	                               transforms.Resize((hp['input_size'], hp['input_size'])),
 	                               transforms.ToTensor(),
-								   transforms.Normalize((0.5,), (0.5,))
+	                               transforms.Normalize((0.5,), (0.5,))
                                ]),
                                download=False)
 train_batches = DataLoader(raw_train_set, shuffle=True, batch_size=hp['train_batch_size'], pin_memory=True)
-
 
 """ Define weight initialization """
 
@@ -150,7 +149,7 @@ class AttnBlock(nn.Module):
 		self.softmax = nn.Softmax(dim=2)
 		self.mlp = nn.Linear(self.heads * self.d_k, self.chan)
 
-		# self.apply(weights_init)
+	# self.apply(weights_init)
 
 	def forward(self, X):
 		# get q, k, v
@@ -165,12 +164,13 @@ class AttnBlock(nn.Module):
 		y = (y + X).permute(0, 2, 1).view(b, ch, h, w)
 		return y
 
+
 """ Define Unet architecture """
 
 
 class Unet(nn.Module):
 	def __init__(self, img_size=32, in_chan=3, out_chan=3, t_chan=256, fst_filters=64, lst_chan=1024, groups=32,
-				 drop_rate=0.1, verbose=False):
+	             drop_rate=0.1, verbose=False):
 		"""
 		Complete Architecture
 		:param img_size: width (or height) of input img.
@@ -220,7 +220,7 @@ class Unet(nn.Module):
 		y = self.de_forward(latent, t)
 
 		if self.ver: print("\nforwarding done.\n"
-						   "=====================================================\n")
+		                   "=====================================================\n")
 		return y
 
 	def t_vector2tensor(self, t: torch.Tensor):
@@ -363,7 +363,7 @@ class Unet(nn.Module):
 				self.en_results += [layer['attn'](layer['res'](X, t))]
 				if self.ver: print("res... attn...")
 			X = self.en_results[-1]
-			if self.ver: print("X's size = "+str(X.shape))
+			if self.ver: print("X's size = " + str(X.shape))
 			if self.ver: print("forward of en-sublayer " + str(i) + " done.")
 			if self.ver: print('--------------------------------------')
 
@@ -374,7 +374,7 @@ class Unet(nn.Module):
 		if self.ver: print('=====================================================')
 		X = self.bridge['res2'](self.bridge['attn'](self.bridge['res1'](X, t)), t)
 		if self.ver: print("res... attn... res...")
-		if self.ver: print("X's size = "+str(X.shape))
+		if self.ver: print("X's size = " + str(X.shape))
 		if self.ver: print("bridge-forward done.")
 		return X
 
@@ -388,7 +388,7 @@ class Unet(nn.Module):
 				cat_X = torch.concat((X, self.en_results.pop()), dim=1)
 				X = layer['attn'](layer['res'](cat_X, t))
 				if self.ver: print("res... attn...")
-			if self.ver: print("X's size = "+str(X.shape))
+			if self.ver: print("X's size = " + str(X.shape))
 			if self.ver: print("forward of de-sublayer " + str(i) + " done.")
 			if self.ver: print('--------------------------------------')
 
@@ -489,7 +489,8 @@ def train_DDPM(predictor: Unet, batch, loss_func, optimizer, device, reg_lambda=
 		if reg_lambda is not None:
 			reg_loss_func = nn.L1Loss()
 			reg_loss = reg_lambda * reg_loss_func(pred_noise, noise)
-		else: reg_loss = 0
+		else:
+			reg_loss = 0
 		noise_loss = loss_func(pred_noise, noise) + reg_loss
 		if verbose: print("Got loss of diffusion noise: ", str(noise_loss.data.item()))
 		scaler.scale(noise_loss).backward()
@@ -502,15 +503,17 @@ def train_DDPM(predictor: Unet, batch, loss_func, optimizer, device, reg_lambda=
 
 """ Sampling using trained model (sample after each epoch) """
 
+
 #  X1 -> X0
 def discrete_decoder(X1, beta, device, opt='DDPM'):
 	# predict noise_t
 	t0 = X1.new_full((X1.shape[0],), 0, dtype=torch.long)
 	pred_noise = model.forward(X1, t0)
 	alpha_0 = my_utils.get_alpha_t(beta, t0).to(device)
+	alpha_bar_0 = my_utils.get_alpha_bar_t(beta, t0).to(device)
 	X0 = None
 	if opt == 'DDIM':
-		pred_X0 = (X1 - torch.sqrt(1 - alpha_0) * pred_noise) / torch.sqrt(alpha_0)  # mean
+		pred_X0 = (X1 - torch.sqrt(1 - alpha_bar_0) * pred_noise) / torch.sqrt(alpha_bar_0)  # mean
 		# alpha_init = 1  # the paper assume the alpha_0 to be 1, here alpha_init (alpha from 0 to T-1 following t)
 		# so sigma_0 = 0, no noise
 		X0 = pred_X0
@@ -530,7 +533,7 @@ def discrete_decoder(X1, beta, device, opt='DDPM'):
 			1 / (1 - X1 + eps) / 255
 		)
 		mean = torch.where(
-			X1 >= 1-eps,
+			X1 >= 1 - eps,
 			delta_plus,
 			torch.where(
 				X1 <= -1 + eps,
@@ -541,6 +544,7 @@ def discrete_decoder(X1, beta, device, opt='DDPM'):
 		prob = torch.distributions.Normal(mean, torch.sqrt(var))  # P(X0|X1)
 		X0 = prob.sample()
 	return X0
+
 
 #  others
 def denoise(X, beta, t, nxt_t, device, opt='DDPM', eta=0):
@@ -560,16 +564,19 @@ def denoise(X, beta, t, nxt_t, device, opt='DDPM', eta=0):
 	# get mean & var --- P(X{t-1}|Xt) = N(X{t-1}; mu(Xt, t, pred_noise), beta_t)
 	alpha_t = my_utils.get_alpha_t(beta, t).to(device)
 	alpha_bar_t = my_utils.get_alpha_bar_t(beta, t)
-	mean = (X - ((1 - alpha_t) * pred_noise) / torch.sqrt(1 - alpha_bar_t)) / torch.sqrt(alpha_t)
-	var = 1 - alpha_t
 	noise = torch.randn(X.shape, device=device)
 	if opt == 'DDIM':
-		pred_X0 = (X - torch.sqrt(1 - alpha_t) * pred_noise) / torch.sqrt(alpha_t)
-		alpha_nxt_t = my_utils.get_alpha_t(beta, nxt_t).to(device)
-		sigma_t = eta * torch.sqrt((1 - alpha_nxt_t) / (1 - alpha_t)) * torch.sqrt((1 - alpha_t) / alpha_nxt_t)
-		dirct2Xt = torch.sqrt(1 - alpha_nxt_t - sigma_t ** 2) * pred_noise
-		X = torch.sqrt(alpha_nxt_t) * pred_X0 + dirct2Xt + sigma_t * noise
+		pred_X0 = (X - torch.sqrt(1 - alpha_bar_t) * pred_noise) / torch.sqrt(alpha_bar_t)
+		alpha_bar_nxt_t = my_utils.get_alpha_bar_t(beta, nxt_t)
+		# beta = 1 - alpha_bar_t / alpha_bar_nxt_t
+		# var(DDIM) = eta*(1 - alpha_bar_nxt_t) / (1 - alpha_bar_t)*beta
+		var = eta * (1 - alpha_bar_nxt_t) / (1 - alpha_bar_t) * \
+		          (1 - alpha_bar_t / alpha_bar_nxt_t)
+		dirct2Xt = torch.sqrt(1 - alpha_bar_nxt_t - var) * pred_noise
+		X = torch.sqrt(alpha_bar_nxt_t) * pred_X0 + dirct2Xt + torch.sqrt(var) * noise
 	elif opt == 'DDPM':
+		mean = (X - ((1 - alpha_t) * pred_noise) / torch.sqrt(1 - alpha_bar_t)) / torch.sqrt(alpha_t)
+		var = 1 - alpha_t
 		X = mean + torch.sqrt(var) * noise
 	return X
 
@@ -625,10 +632,13 @@ for e in range(e_num):  # iter. epochs
 	with torch.no_grad():
 		Xt = torch.randn([hp['samples_num'], hp['in_chan'], hp['input_size'], hp['input_size']], device=device)
 		beta = my_utils.variance_schedule(hp['train_T'], hp['beta']).to(device)
-		for t in range(hp['sampling_T'] - 1, -1, -1):  # t from T-1 to 0
-			if t != 0:
-				nxt_t = Xt.new_full((hp['samples_num'],), t - 1, dtype=torch.long)
+		c = hp['train_T'] // hp['sampling_T']
+		t_seq = list(range(0, hp['train_T'], c))
+		for i in range(len(t_seq)-1, -1, -1):  # t from T-1 to 0
+			if i != 0:
+				t, nxt_t = t_seq[i], t_seq[i-1]
 				t = Xt.new_full((hp['samples_num'],), t, dtype=torch.long)
+				nxt_t = Xt.new_full((hp['samples_num'],), nxt_t, dtype=torch.long)
 				Xt = denoise(Xt, beta, t, nxt_t, device, hp['opt'], hp['eta'])
 			else:
 				X0 = discrete_decoder(Xt, beta, device, hp['opt'])
@@ -636,5 +646,3 @@ for e in range(e_num):  # iter. epochs
 
 	""" restore org_params """
 	restore_org_params(model, org_params)
-
-
