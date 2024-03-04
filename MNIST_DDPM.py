@@ -26,7 +26,6 @@ device = my_utils.register_device()
 hp = {
 	# ============= data ==============
 	'train_batch_size': 64,
-	'val_batch_size': 128,
 	# ============= model ==============
 	'opt': 'DDPM',
 	'eta': 0,
@@ -38,8 +37,8 @@ hp = {
 	'lst_chan': 1024,
 	'groups': 32,
 	'drop_rate': 0.1,
-	'train_T': 700,
-	'sampling_T': 700,
+	'train_T': 600,  # DDIM 700
+	'sampling_T': 600,  # DDIM 20
 	'beta': 'sin',
 	# ============= training ==============
 	'init_lr': 6e-5,
