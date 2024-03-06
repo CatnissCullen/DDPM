@@ -27,7 +27,7 @@ hp = {
 	# ============= data ==============
 	'train_batch_size': 64,
 	# ============= model ==============
-	'opt': 'DDPM',
+	'opt': 'DDIM',
 	'eta': 0,
 	'input_size': 32,
 	'in_chan': 1,
@@ -37,15 +37,15 @@ hp = {
 	'lst_chan': 1024,
 	'groups': 32,
 	'drop_rate': 0.1,
-	'train_T': 600,  # DDIM 700
-	'sampling_T': 600,  # DDIM 20
+	'train_T': 700,  # DDIM 700
+	'sampling_T': 20,  # DDIM 20
 	'beta': 'sin',
 	# ============= training ==============
 	'init_lr': 6e-5,
-	'epoch_num': 15,
-	'L2': 5e-3,
+	'epoch_num': 10,
+	'L2': 0,
 	# ============= testing =============
-	'samples_num': 5
+	'samples_num': 20
 }
 
 """ Create datasets """

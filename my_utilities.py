@@ -23,7 +23,7 @@ import torch.nn as nn
 import torchvision.transforms.functional as trans_func
 from torch.utils.data import ConcatDataset, DataLoader, Subset, Dataset, TensorDataset, random_split
 from torchvision.datasets import DatasetFolder, VisionDataset
-from torchvision.utils import save_image
+from torchvision.utils import save_image, make_grid
 
 """ Set Device """
 
@@ -39,7 +39,7 @@ def register_device(gpu_no=0):
 """ Generate t """
 
 
-def get_t(b, T): # from 0 to T-1
+def get_t(b, T):  # from 0 to T-1
 	return torch.randint(low=0, high=T, size=(b,), dtype=torch.long)
 
 
@@ -88,10 +88,15 @@ def get_alpha_t(beta, t):
 
 
 # save generated batch regularly
-def save_gen_chk_point(sample_batch, save_dir, idx):
-	sample_batch = torch.cat(tuple(sample_batch), dim=2)
-	save_image(sample_batch, save_dir + "result" + str(idx) + ".png")
-	print('result ',idx,'.png',' saved.')
+def save_gen_chk_point(sample_batch, save_dir, idx=None):
+	# sample_batch = torch.cat(tuple(sample_batch), dim=2)
+	if not os.path.exists(save_dir + "each/e" + str(idx) + "/"):
+		os.makedirs(save_dir + "each/e" + str(idx) + "/")
+	for i, image in enumerate(sample_batch):
+		save_image(image, save_dir + "each/e" + str(idx) + "/" + "result" + str(idx) + "_" + str(i) + ".png")
+	sample_batch = make_grid(sample_batch, nrow=4)
+	save_image(sample_batch, save_dir + "grid/" + "result" + str(idx) + ".png")
+	print('result' + str(idx) + '.png', 'saved.')
 
 
 """ Save Model """
